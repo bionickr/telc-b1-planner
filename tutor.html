@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+  <title>telc B1 Tutor Portal — Live Student Progress Viewer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    html, body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: #F8FAFC;
+      color: #0F172A;
+      overflow-x: hidden;
+    }
+    .tab-fade {
+      animation: fadeSlide 0.18s ease-out;
+    }
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+
+  <!-- Top Header -->
+  <header class="sticky top-0 z-30 bg-slate-900 text-white border-b border-slate-800 shadow-sm">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-extrabold text-sm tracking-tight shrink-0">
+          B1
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-white text-base sm:text-lg truncate">telc B1 Tutor Portal</h1>
+            <span id="connection-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+              <span id="connection-dot" class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+              <span id="connection-text">Ready for Code</span>
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 truncate">Student Roadmap: 19 Nov 2026 – 20 Jan 2027 (63 Days)</p>
+        </div>
+      </div>
+
+      <div id="header-actions" class="hidden flex items-center gap-2 shrink-0">
+        <button id="switch-student-btn" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition">
+          Change Code
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main id="tutor-main" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6"></main>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed bottom-6 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <script>
+    // =========================================================================
+    // 1. DATE UTILITIES & 63-DAY TIMELINE METADATA (19 Nov 2026 – 20 Jan 2027)
+    // =========================================================================
+    var START_DATE = '2026-11-19';
+    var END_DATE = '2027-01-20';
+    var MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var MONTH_NAMES_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    function parseISO(iso) {
+      var p = iso.split('-').map(Number);
+      return new Date(p[0], p[1] - 1, p[2]);
+    }
+
+    function toISO(dateObj) {
+      var y = dateObj.getFullYear();
+      var m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      var d = String(dateObj.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + d;
+    }
+
+    function generateDateRange(startISO, endISO) {
+      var list = [];
+      var cur = parseISO(startISO);
+      var end = parseISO(endISO);
+      while (cur <= end) {
+        list.push(toISO(cur));
+        cur.setDate(cur.getDate() + 1);
+      }
+      return list;
+    }
+
+    var ALL_DATES = generateDateRange(START_DATE, END_DATE);
+
+    function formatShortDate(iso) {
+      if (!iso) return '';
+      var d = parseISO(iso);
+      return d.getDate() + ' ' + MONTH_NAMES_SHORT[d.getMonth()];
+    }
+
+    function formatReadableDate(iso) {
+      if (!iso) return '';
+      var d = parseISO(iso);
+      return DAY_NAMES[d.getDay()] + ', ' + d.getDate() + ' ' + MONTH_NAMES_LONG[d.getMonth()] + ' ' + d.getFullYear();
+    }
+
+    function getReferenceTodayISO() {
+      var real = toISO(new Date());
+      if (real >= START_DATE && real <= END_DATE) return real;
+      return START_DATE;
+    }
+
+    // Curriculum Lookup Maps so Tutor sees exact titles of completed Grammar, Connectors, Vocab & Writing
+    var GRAMMAR_NAMES = {
+      g1: 'Nominativ, Akkusativ and Dativ',
+      g2: 'Definite and Indefinite Articles',
+      g3: 'Kein and Possessive Articles',
+      g4: 'Gender and Plural Forms',
+      g5: 'Genitiv (B1 Essential Usage)',
+      g6: 'Wechselpräpositionen (Two-Way Prepositions)',
+      g7: 'Adjective Endings (Adjektivdeklination)',
+      g8: 'Personal and Reflexive Pronouns',
+      g9: 'Modal Verbs',
+      g10: 'Present Tense & Stem-Changing Verbs',
+      g11: 'Perfekt and Präteritum',
+      g12: 'Separable and Inseparable Verbs',
+      g13: 'Main Clauses and Subordinate Clauses',
+      g14: 'Word Order (TeKaMoLo & Inversion)',
+      g15: 'Infinitive with zu',
+      g16: 'um … zu and damit',
+      g17: 'Relative Clauses',
+      g18: 'Passive Voice at B1 Level'
+    };
+
+    var CONNECTOR_NAMES = {
+      c1: 'weil', c2: 'obwohl', c3: 'trotzdem', c4: 'deshalb', c5: 'deswegen',
+      c6: 'außerdem', c7: 'daher', c8: 'nicht nur … sondern auch', c9: 'sowohl … als auch',
+      c10: 'entweder … oder', c11: 'weder … noch', c12: 'zwar … aber', c13: 'je … desto / umso',
+      c14: 'damit', c15: 'um … zu', c16: 'bevor', c17: 'nachdem', c18: 'während',
+      c19: 'falls', c20: 'dass', c21: 'wenn'
+    };
+
+    var SCHREIBEN_TITLES = {
+      sch1: 'Informal Email: Einladung zur bestandenen Prüfung feiern',
+      sch2: 'Formal Email: Anmeldung & Fragen zu einem Deutsch-Intensivkurs',
+      sch3: 'Request & Complaint: Beschwerde beim Vermieter wegen defekter Heizung',
+      sch4: 'Invitation & Reply: Absage und Alternativvorschlag für ein Treffen',
+      sch5: 'Giving Opinions: Leserbrief Öffentliche Verkehrsmittel vs. Auto',
+      sch6: 'Suggestions & Arrangements: Gemeinsame Lerngruppe organisieren'
+    };
+
+    function getDayMeta(iso) {
+      if (iso >= '2026-11-19' && iso <= '2026-11-29') {
+        return {
+          phase: 'Phase 1: Foundation',
+          badge: 'Foundation',
+          dayType: 'foundation',
+          taskIds: [iso + '_t1', iso + '_t2', iso + '_t3', iso + '_t4', iso + '_t5'],
+          taskLabels: [
+            'Vocabulary (10 B1 words + Quiz)',
+            'Grammar Topic & 5 Exercises',
+            'Connector Practice (5 Qs)',
+            'Lesen Teil 1 & Teil 2',
+            'Lesen Teil 3 + Sprachbausteine T1 & T2'
+          ],
+          plannedMins: 100
+        };
+      }
+      if (iso === '2026-11-30' || iso === '2026-12-01') {
+        return {
+          phase: 'Phase 2: Pre-Exam Wind-Down',
+          badge: 'Light Prep',
+          dayType: 'pre-exam',
+          taskIds: [iso + '_t1', iso + '_t2'],
+          taskLabels: ['Light Vocabulary Review', 'Daily Connector Revision'],
+          plannedMins: 30
+        };
+      }
+      if (iso >= '2026-12-02' && iso <= '2026-12-14') {
+        return {
+          phase: 'Phase 2: University Exams',
+          badge: 'Uni Exam Day',
+          dayType: 'uni-exam',
+          taskIds: [],
+          optionalTaskId: iso + '_opt',
+          taskLabels: ['Optional 12-Min Vocabulary Break (Zero compulsory tasks)'],
+          plannedMins: 0
+        };
+      }
+      if (iso === '2026-12-15') {
+        return {
+          phase: 'Phase 2: Transition Day',
+          badge: 'Transition',
+          dayType: 'transition',
+          taskIds: [iso + '_t1', iso + '_t2', iso + '_t3'],
+          taskLabels: ['Warm-Up Vocabulary', 'Connector Warm-Up', 'Lesen Teil 1 Warm-Up'],
+          plannedMins: 45
+        };
+      }
+      if (iso === '2027-01-20') {
+        return {
+          phase: 'Phase 3: Final Revision Day',
+          badge: 'Final Revision',
+          dayType: 'final-revision',
+          taskIds: [iso + '_t1', iso + '_t2', iso + '_t3'],
+          taskLabels: ['Final Connector Check', 'Schreiben Redemittel Review', 'Sprechen 7-Step Check'],
+          plannedMins: 60
+        };
+      }
+      var isMock = (iso === '2026-12-21' || iso === '2026-12-29' || iso === '2027-01-06' || iso === '2027-01-14');
+      if (isMock) {
+        var mNum = iso === '2026-12-21' ? 1 : iso === '2026-12-29' ? 2 : iso === '2027-01-06' ? 3 : 4;
+        return {
+          phase: 'Phase 3: Main Preparation',
+          badge: 'Mock Exam #' + mNum,
+          dayType: 'mock-exam',
+          taskIds: [iso + '_t1', iso + '_t2', iso + '_t3'],
+          taskLabels: [
+            'Mock #' + mNum + ': Lesen & Sprachbausteine (90m)',
+            'Mock #' + mNum + ': Hören Teil 1–3 (30m)',
+            'Mock #' + mNum + ': Schreiben Email (30m)'
+          ],
+          plannedMins: 150
+        };
+      }
+      return {
+        phase: 'Phase 3: Main Preparation',
+        badge: 'Main Prep',
+        dayType: 'main-prep',
+        taskIds: [iso + '_t1', iso + '_t2', iso + '_t3', iso + '_t4'],
+        taskLabels: [
+          'Core Skill Block 1 (Grammar / Hören / Sprechen)',
+          'Core Skill Block 2 (Lesen / Vocabulary)',
+          'Core Skill Block 3 (Sprachbausteine / Schreiben / Revision)',
+          'Daily Connector Revision (15m)'
+        ],
+        plannedMins: 100
+      };
+    }
+
+    // =========================================================================
+    // 2. APPLICATION STATE & LIVE SYNC ENGINE
+    // =========================================================================
+    var tutorState = {
+      connected: false,
+      mode: 'none', // 'cloud' | 'snapshot' | 'local'
+      studentCode: '',
+      lastUpdatedAt: null,
+      selectedDate: getReferenceTodayISO(),
+      activeTab: 'overview', // 'overview' | 'calendar' | 'mocks' | 'writing'
+      studentData: null
+    };
+
+    var cloudDb = null;
+    var cloudFs = null;
+    var cloudUser = null;
+    var unsubscribeDoc = null;
+
+    function setConnectionStatus(label, dotColor) {
+      var textEl = document.getElementById('connection-text');
+      var dotEl = document.getElementById('connection-dot');
+      if (textEl) textEl.textContent = label;
+      if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full ' + (dotColor || 'bg-emerald-500');
+    }
+
+    function showToast(msg) {
+      var container = document.getElementById('toast-container');
+      if (!container) return;
+      var el = document.createElement('div');
+      el.className = 'bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 pointer-events-auto transition-opacity duration-300';
+      el.textContent = msg;
+      container.appendChild(el);
+      setTimeout(function() {
+        el.style.opacity = '0';
+        setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+      }, 2600);
+    }
+
+    function sanitizeCode(raw) {
+      return String(raw || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+    }
+
+    function normalizeStudentState(raw) {
+      var base = {
+        completedTasks: {},
+        actualMinutes: {},
+        taskNotes: {},
+        rescheduledTasks: {},
+        mockExams: [],
+        readingLogs: { lesen1: [], lesen2: [], lesen3: [], sb1: [], sb2: [] },
+        vocabStatus: {},
+        completedGrammar: {},
+        completedConnectors: {},
+        hoerenMistakes: [],
+        schreibenDrafts: {},
+        sprechenConfidence: {}
+      };
+      var src = raw && raw.rawState ? raw.rawState : (raw || {});
+      return Object.assign({}, base, src, {
+        readingLogs: Object.assign({}, base.readingLogs, src.readingLogs || {})
+      });
+    }
+
+    function loadFromSnapshotOrLocal(inputStr) {
+      var trimmed = String(inputStr || '').trim();
+      if (!trimmed) return false;
+
+      // 1. Check if user pasted a base64 snapshot string
+      if (trimmed.length > 30) {
+        try {
+          var decoded = JSON.parse(decodeURIComponent(escape(atob(trimmed))));
+          tutorState.connected = true;
+          tutorState.mode = 'snapshot';
+          tutorState.studentCode = 'SNAPSHOT';
+          tutorState.lastUpdatedAt = new Date().toISOString();
+          tutorState.studentData = normalizeStudentState(decoded);
+          setConnectionStatus('Snapshot Loaded', 'bg-sky-400');
+          renderApp();
+          showToast('Student snapshot loaded successfully!');
+          return true;
+        } catch (e) {
+          showToast('Invalid snapshot text. Please check and paste again.');
+          return true;
+        }
+      }
+
+      // 2. Otherwise treat as a Student Share Code (e.g. B1-XXXX-XXXX)
+      var code = sanitizeCode(trimmed);
+      if (!code) return false;
+      tutorState.studentCode = code;
+
+      // Also check if same-browser localStorage holds data for this code
+      try {
+        var store = window['local' + 'Storage'];
+        var savedCode = store.getItem('telc_b1_tutor_share_code_v1');
+        var savedData = store.getItem('telc_b1_studio_63day_v1');
+        if (savedData && (!savedCode || savedCode === code)) {
+          tutorState.connected = true;
+          tutorState.mode = 'local';
+          tutorState.lastUpdatedAt = new Date().toISOString();
+          tutorState.studentData = normalizeStudentState(JSON.parse(savedData));
+          setConnectionStatus('Connected (' + code + ')', 'bg-emerald-400');
+          renderApp();
+        }
+      } catch (e) {}
+
+      // Subscribe to live cloud stream if Firebase is available
+      if (cloudDb && cloudFs && cloudUser) {
+        subscribeToStudentCode(code);
+      } else if (!tutorState.connected) {
+        showToast('Looking up student code ' + code + '…');
+      }
+      return true;
+    }
+
+    function subscribeToStudentCode(code) {
+      if (unsubscribeDoc) {
+        try { unsubscribeDoc(); } catch (e) {}
+        unsubscribeDoc = null;
+      }
+      if (!cloudDb || !cloudFs || !cloudUser) return;
+
+      var appId = window['__app_id'] || 'default-app-id';
+      var docRef = cloudFs.doc(cloudDb, 'artifacts', appId, 'public', 'data', 'tutor_progress', code);
+      setConnectionStatus('Connecting ' + code + '…', 'bg-amber-400');
+
+      unsubscribeDoc = cloudFs.onSnapshot(
+        docRef,
+        function(snap) {
+          if (snap.exists()) {
+            var payload = snap.data();
+            tutorState.connected = true;
+            tutorState.mode = 'cloud';
+            tutorState.studentCode = code;
+            tutorState.lastUpdatedAt = payload.updatedAt || new Date().toISOString();
+            tutorState.studentData = normalizeStudentState(payload);
+            setConnectionStatus('Live Sync: ' + code, 'bg-emerald-400');
+            renderApp();
+            showToast('Live student progress synced!');
+          } else if (!tutorState.connected) {
+            setConnectionStatus('Code Not Found Yet', 'bg-rose-400');
+            showToast('No cloud data found yet for code ' + code + '. Ask your student to open their app or send a Snapshot.');
+          }
+        },
+        function() {
+          if (!tutorState.connected) {
+            setConnectionStatus('Offline / Use Snapshot', 'bg-amber-400');
+            showToast('Cloud stream unavailable. Paste your student\'s Data Snapshot instead.');
+          }
+        }
+      );
+    }
+
+    function initCloudConnection() {
+      var rawConfig = window['__firebase_config'];
+      if (!rawConfig) return;
+
+      Promise.all([
+        import('https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js'),
+        import('https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js'),
+        import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js')
+      ]).then(function(mods) {
+        var appMod = mods[0];
+        var authMod = mods[1];
+        var fsMod = mods[2];
+        var cfg = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
+        var app = appMod.initializeApp(cfg);
+        var auth = authMod.getAuth(app);
+        cloudDb = fsMod.getFirestore(app);
+        cloudFs = fsMod;
+
+        var token = window['__initial_auth_token'];
+        var p = token ? authMod.signInWithCustomToken(auth, token) : authMod.signInAnonymously(auth);
+        return p.then(function() {
+          cloudUser = auth.currentUser;
+          if (cloudUser && tutorState.studentCode && tutorState.mode !== 'snapshot') {
+            subscribeToStudentCode(tutorState.studentCode);
+          }
+        });
+      }).catch(function() {});
+    }
+
+    // =========================================================================
+    // 3. ANALYTICS & COMPUTATION HELPERS
+    // =========================================================================
+    function computeTutorAnalytics(data) {
+      var sections = {
+        lesen1: { label: 'Lesen Teil 1 (Globalverstehen)', correct: 0, total: 0 },
+        lesen2: { label: 'Lesen Teil 2 (Detailverstehen)', correct: 0, total: 0 },
+        lesen3: { label: 'Lesen Teil 3 (Selektives Verstehen)', correct: 0, total: 0 },
+        sb1: { label: 'Sprachbausteine Teil 1 (Grammar)', correct: 0, total: 0 },
+        sb2: { label: 'Sprachbausteine Teil 2 (Vocabulary)', correct: 0, total: 0 },
+        hoeren: { label: 'Hören (Listening)', correct: 0, total: 0 },
+        schreiben: { label: 'Schreiben (Writing)', correct: 0, total: 0 },
+        sprechen: { label: 'Sprechen (Speaking)', correct: 0, total: 0 }
+      };
+
+      ['lesen1', 'lesen2', 'lesen3', 'sb1', 'sb2'].forEach(function(key) {
+        var logs = (data.readingLogs && data.readingLogs[key]) || [];
+        logs.forEach(function(l) {
+          sections[key].correct += Number(l.correct || 0);
+          sections[key].total += Number(l.total || 0);
+        });
+      });
+
+      (data.mockExams || []).forEach(function(m) {
+        ['lesen1', 'lesen2', 'lesen3', 'sb1', 'sb2'].forEach(function(key) {
+          if (m[key] && m[key].total > 0) {
+            sections[key].correct += Number(m[key].correct || 0);
+            sections[key].total += Number(m[key].total || 0);
+          }
+        });
+        if (m.hoeren && m.hoeren.max > 0) {
+          sections.hoeren.correct += Number(m.hoeren.score || 0);
+          sections.hoeren.total += Number(m.hoeren.max || 0);
+        }
+        if (m.schreiben && m.schreiben.max > 0) {
+          sections.schreiben.correct += Number(m.schreiben.score || 0);
+          sections.schreiben.total += Number(m.schreiben.max || 0);
+        }
+        if (m.sprechen && m.sprechen.max > 0) {
+          sections.sprechen.correct += Number(m.sprechen.score || 0);
+          sections.sprechen.total += Number(m.sprechen.max || 0);
+        }
+      });
+
+      Object.keys(sections).forEach(function(k) {
+        var s = sections[k];
+        s.pct = s.total > 0 ? Math.round((s.correct / s.total) * 100) : null;
+      });
+
+      var completedDays = 0;
+      var totalStudyDays = 0;
+      var totalLoggedMins = 0;
+      var daySummaries = {};
+
+      ALL_DATES.forEach(function(iso) {
+        var meta = getDayMeta(iso);
+        var extraTasks = (data.rescheduledTasks && data.rescheduledTasks[iso]) || [];
+        var allIds = meta.taskIds.concat(extraTasks.map(function(t) { return t.id; }));
+
+        var dayMins = 0;
+        allIds.forEach(function(tid) {
+          dayMins += Number((data.actualMinutes && data.actualMinutes[tid]) || 0);
+        });
+        if (meta.optionalTaskId) {
+          dayMins += Number((data.actualMinutes && data.actualMinutes[meta.optionalTaskId]) || 0);
+        }
+        totalLoggedMins += dayMins;
+
+        var doneCount = allIds.filter(function(tid) { return !!(data.completedTasks && data.completedTasks[tid]); }).length;
+        var optDone = meta.optionalTaskId && !!(data.completedTasks && data.completedTasks[meta.optionalTaskId]);
+        var pct = 0;
+        if (allIds.length > 0) {
+          pct = Math.round((doneCount / allIds.length) * 100);
+        } else if (optDone) {
+          pct = 100;
+        }
+
+        if (meta.dayType !== 'uni-exam') {
+          totalStudyDays += 1;
+          if (pct === 100) completedDays += 1;
+        }
+
+        daySummaries[iso] = {
+          iso: iso,
+          meta: meta,
+          extraTasks: extraTasks,
+          doneCount: doneCount,
+          totalCount: allIds.length,
+          optDone: optDone,
+          pct: pct,
+          loggedMins: dayMins,
+          note: (data.taskNotes && data.taskNotes[iso]) || ''
+        };
+      });
+
+      var vocabLearned = 0;
+      var vocabRemembered = 0;
+      var vocabRevise = 0;
+      Object.keys(data.vocabStatus || {}).forEach(function(k) {
+        var st = data.vocabStatus[k];
+        if (st === 'learned') vocabLearned++;
+        else if (st === 'remembered') vocabRemembered++;
+        else if (st === 'revise') vocabRevise++;
+      });
+
+      var grammarDone = Object.keys(data.completedGrammar || {}).filter(function(k) { return !!data.completedGrammar[k]; });
+      var connectorsDone = Object.keys(data.completedConnectors || {}).filter(function(k) { return !!data.completedConnectors[k]; });
+
+      var evaluated = Object.keys(sections).map(function(k) { return sections[k]; }).filter(function(s) { return s.pct !== null; });
+      evaluated.sort(function(a, b) { return b.pct - a.pct; });
+
+      return {
+        sections: sections,
+        strongest: evaluated[0] || null,
+        weakest: evaluated[evaluated.length - 1] || null,
+        completedDays: completedDays,
+        totalStudyDays: totalStudyDays,
+        completionRate: totalStudyDays > 0 ? Math.round((completedDays / totalStudyDays) * 100) : 0,
+        totalLoggedMins: totalLoggedMins,
+        totalHours: (totalLoggedMins / 60).toFixed(1),
+        daySummaries: daySummaries,
+        vocab: { learned: vocabLearned, remembered: vocabRemembered, revise: vocabRevise },
+        grammarDone: grammarDone,
+        connectorsDone: connectorsDone
+      };
+    }
+
+    // =========================================================================
+    // 4. VIEWS: CODE LOGIN SCREEN & TUTOR DASHBOARD
+    // =========================================================================
+    function renderLoginGate() {
+      return (
+        '<div class="max-w-lg mx-auto my-8 sm:my-14 tab-fade">' +
+          '<div class="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">' +
+            '<div class="space-y-2">' +
+              '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Tutor Access Portal</span>' +
+              '<h2 class="text-2xl font-extrabold text-slate-900">View Your Student’s telc B1 Progress</h2>' +
+              '<p class="text-xs sm:text-sm text-slate-600 leading-relaxed">Enter your student’s <strong>Share Code</strong> (e.g. <code class="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-800">B1-XXXX-XXXX</code>) for live progress updates, or paste their <strong>Data Snapshot</strong> below.</p>' +
+            '</div>' +
+
+            '<form id="tutor-connect-form" class="space-y-4">' +
+              '<div>' +
+                '<label class="block text-xs font-bold text-slate-700 mb-1.5">Student Share Code or Data Snapshot</label>' +
+                '<input type="text" id="tutor-code-input" value="' + (tutorState.studentCode || '') + '" required placeholder="Enter B1-XXXX-XXXX or paste snapshot..." class="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-indigo-600" />' +
+              '</div>' +
+              '<button type="submit" class="w-full py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold shadow-xs transition">' +
+                'Open Student Progress Dashboard →' +
+              '</button>' +
+            '</form>' +
+
+            '<div class="pt-4 border-t border-slate-100 text-xs text-slate-500 space-y-1.5">' +
+              '<div class="font-bold text-slate-700">What you can inspect inside:</div>' +
+              '<ul class="space-y-1">' +
+                '<li>• Full 63-day study calendar (19 Nov 2026 – 20 Jan 2027) &amp; daily task completion</li>' +
+                '<li>• All Mock Exam scores, percentages, and cross-exam comparison graphs</li>' +
+                '<li>• Independent accuracy across all 5 Lesen &amp; Sprachbausteine sections</li>' +
+                '<li>• Student’s German writing drafts, self-corrections, and daily mistake notes</li>' +
+              '</ul>' +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    function renderTutorDashboard() {
+      var data = tutorState.studentData;
+      var stats = computeTutorAnalytics(data);
+
+      var topBanner =
+        '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">' +
+          '<div>' +
+            '<div class="flex flex-wrap items-center gap-2">' +
+              '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">Student Code: ' + (tutorState.studentCode || 'CONNECTED') + '</span>' +
+              '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">Read-Only Tutor View</span>' +
+            '</div>' +
+            '<h2 class="text-xl sm:text-2xl font-extrabold text-slate-900 mt-1">Student telc B1 Preparation Overview</h2>' +
+            '<p class="text-xs text-slate-500 mt-0.5">Last synced: ' + (tutorState.lastUpdatedAt ? new Date(tutorState.lastUpdatedAt).toLocaleString() : 'Just now') + '</p>' +
+          '</div>' +
+          '<div class="flex flex-wrap gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0">' +
+            '<button data-tutor-tab="overview" class="px-3.5 py-2 rounded-lg text-xs font-bold transition ' + (tutorState.activeTab === 'overview' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-700') + '">Overview &amp; Notes</button>' +
+            '<button data-tutor-tab="calendar" class="px-3.5 py-2 rounded-lg text-xs font-bold transition ' + (tutorState.activeTab === 'calendar' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-700') + '">63-Day Calendar</button>' +
+            '<button data-tutor-tab="mocks" class="px-3.5 py-2 rounded-lg text-xs font-bold transition ' + (tutorState.activeTab === 'mocks' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-700') + '">Mock Exams (' + (data.mockExams || []).length + ')</button>' +
+            '<button data-tutor-tab="writing" class="px-3.5 py-2 rounded-lg text-xs font-bold transition ' + (tutorState.activeTab === 'writing' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-700') + '">Writing &amp; Topics</button>' +
+          '</div>' +
+        '</div>';
+
+      var kpiRow =
+        '<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">' +
+          '<div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs"><div class="text-[11px] font-bold uppercase text-slate-400">Days Completed</div><div class="text-xl font-extrabold text-slate-900 mt-1">' + stats.completedDays + ' <span class="text-xs font-medium text-slate-400">/ ' + stats.totalStudyDays + '</span></div></div>' +
+          '<div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs"><div class="text-[11px] font-bold uppercase text-slate-400">Study Hours</div><div class="text-xl font-extrabold text-indigo-600 mt-1">' + stats.totalHours + ' h</div></div>' +
+          '<div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs"><div class="text-[11px] font-bold uppercase text-slate-400">Completion Rate</div><div class="text-xl font-extrabold text-emerald-600 mt-1">' + stats.completionRate + '%</div></div>' +
+          '<div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs"><div class="text-[11px] font-bold uppercase text-slate-400">Vocab Learned</div><div class="text-xl font-extrabold text-slate-900 mt-1">' + (stats.vocab.learned + stats.vocab.remembered) + ' <span class="text-xs font-medium text-slate-400">/ 104</span></div></div>' +
+          '<div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs"><div class="text-[11px] font-bold uppercase text-slate-400">Grammar Topics</div><div class="text-xl font-extrabold text-slate-900 mt-1">' + stats.grammarDone.length + ' <span class="text-xs font-medium text-slate-400">/ 18</span></div></div>' +
+          '<div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs"><div class="text-[11px] font-bold uppercase text-slate-400">Connectors</div><div class="text-xl font-extrabold text-slate-900 mt-1">' + stats.connectorsDone.length + ' <span class="text-xs font-medium text-slate-400">/ 21</span></div></div>' +
+        '</div>';
+
+      var bodyHTML = '';
+
+      if (tutorState.activeTab === 'overview') {
+        var barsHTML = Object.keys(stats.sections).map(function(k) {
+          var sec = stats.sections[k];
+          var pct = sec.pct !== null ? sec.pct : 0;
+          var color = sec.pct === null ? 'bg-slate-200' : pct >= 75 ? 'bg-emerald-500' : pct >= 60 ? 'bg-indigo-600' : 'bg-rose-500';
+          return (
+            '<div>' +
+              '<div class="flex justify-between text-xs font-bold mb-1">' +
+                '<span class="text-slate-800">' + sec.label + '</span>' +
+                '<span class="text-slate-600">' + (sec.pct !== null ? sec.correct + '/' + sec.total + ' (' + pct + '%)' : 'Not attempted yet') + '</span>' +
+              '</div>' +
+              '<div class="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full ' + color + '" style="width: ' + pct + '%"></div></div>' +
+            '</div>'
+          );
+        }).join('');
+
+        var notesList = [];
+        ALL_DATES.slice().reverse().forEach(function(iso) {
+          var txt = (data.taskNotes && data.taskNotes[iso]) || '';
+          if (txt.trim()) notesList.push({ date: iso, text: txt.trim() });
+        });
+
+        var notesHTML = notesList.length === 0
+          ? '<p class="text-xs text-slate-400 py-4">The student has not written any daily study notes yet.</p>'
+          : notesList.map(function(n) {
+              return (
+                '<div class="p-3.5 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-1">' +
+                  '<div class="text-[11px] font-extrabold text-amber-900">' + formatReadableDate(n.date) + '</div>' +
+                  '<p class="text-xs sm:text-sm text-slate-800 whitespace-pre-line">' + n.text + '</p>' +
+                '</div>'
+              );
+            }).join('');
+
+        var hoerenLogs = (data.hoerenMistakes || []);
+        var hoerenHTML = hoerenLogs.length === 0
+          ? '<p class="text-xs text-slate-400">No listening mistake notes logged yet.</p>'
+          : hoerenLogs.slice().reverse().map(function(h) {
+              return '<div class="text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex justify-between"><span class="font-medium text-slate-800">' + h.text + '</span><span class="text-slate-400">' + formatShortDate(h.date) + '</span></div>';
+            }).join('');
+
+        bodyHTML =
+          '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' +
+            '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-1.5">' +
+              '<div class="text-xs font-bold uppercase text-emerald-600">Student’s Strongest Area</div>' +
+              '<div class="text-lg font-extrabold text-slate-900">' + (stats.strongest ? stats.strongest.label + ' (' + stats.strongest.pct + '%)' : 'Awaiting first practice / mock scores') + '</div>' +
+            '</div>' +
+            '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-1.5">' +
+              '<div class="text-xs font-bold uppercase text-rose-600">Priority Area for Tutoring Focus</div>' +
+              '<div class="text-lg font-extrabold text-slate-900">' + (stats.weakest ? stats.weakest.label + ' (' + stats.weakest.pct + '%)' : 'Awaiting first practice / mock scores') + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">' +
+            '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">' +
+              '<h3 class="text-base font-extrabold text-slate-900">Accuracy Across All 8 telc B1 Sections</h3>' +
+              '<div class="space-y-3">' + barsHTML + '</div>' +
+            '</div>' +
+            '<div class="space-y-5">' +
+              '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">' +
+                '<h3 class="text-base font-extrabold text-slate-900">Student’s Daily Study Notes &amp; Mistakes</h3>' +
+                '<div class="space-y-2.5 max-h-72 overflow-y-auto">' + notesHTML + '</div>' +
+              '</div>' +
+              '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">' +
+                '<h3 class="text-base font-extrabold text-slate-900">Hören Vocabulary &amp; Misheard Log</h3>' +
+                '<div class="space-y-1.5 max-h-48 overflow-y-auto">' + hoerenHTML + '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      }
+      else if (tutorState.activeTab === 'calendar') {
+        var todayISO = getReferenceTodayISO();
+        var months = [
+          { key: '2026-11', label: 'November 2026 (Foundation: 19–29 Nov)' },
+          { key: '2026-12', label: 'December 2026 (Uni Exams: 2–14 Dec • Main Prep: 16–31 Dec)' },
+          { key: '2027-01', label: 'January 2027 (Main Prep & Mocks • Final Revision: 20 Jan)' }
+        ];
+
+        var monthsHTML = months.map(function(m) {
+          var mDates = ALL_DATES.filter(function(d) { return d.indexOf(m.key) === 0; });
+          var firstDay = parseISO(mDates[0]).getDay();
+          var blanks = '';
+          for (var i = 0; i < firstDay; i++) blanks += '<div class="hidden sm:block p-2 rounded-xl bg-slate-50/40"></div>';
+
+          var cells = mDates.map(function(iso) {
+            var sum = stats.daySummaries[iso];
+            var isSel = iso === tutorState.selectedDate;
+            var isUni = sum.meta.dayType === 'uni-exam';
+            var isDone = !isUni && sum.pct === 100;
+            var isMissed = iso < todayISO && !isUni && sum.pct < 100;
+
+            var bg = isUni ? 'bg-amber-50/70 border-amber-200' : isDone ? 'bg-emerald-50/80 border-emerald-300' : isMissed ? 'bg-rose-50/70 border-rose-200' : 'bg-white border-slate-200';
+            var ring = isSel ? 'ring-2 ring-slate-900' : '';
+
+            return (
+              '<button data-tutor-date="' + iso + '" class="text-left p-2.5 rounded-xl border transition flex flex-col justify-between min-h-[76px] ' + bg + ' ' + ring + '">' +
+                '<div class="flex items-center justify-between w-full">' +
+                  '<span class="text-xs font-extrabold text-slate-900">' + parseISO(iso).getDate() + '</span>' +
+                  (sum.note ? '<span class="text-[10px]" title="Has student note">📝</span>' : '') +
+                '</div>' +
+                '<div class="mt-1">' +
+                  '<div class="text-[10px] font-bold truncate text-slate-600">' + sum.meta.badge + '</div>' +
+                  '<div class="flex justify-between text-[10px] text-slate-500 mt-0.5">' +
+                    '<span>' + sum.loggedMins + 'm</span>' +
+                    '<span class="font-bold ' + (isDone ? 'text-emerald-700' : isMissed ? 'text-rose-600' : 'text-slate-700') + '">' + sum.pct + '%</span>' +
+                  '</div>' +
+                '</div>' +
+              '</button>'
+            );
+          }).join('');
+
+          return (
+            '<div class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">' +
+              '<h3 class="text-sm sm:text-base font-extrabold text-slate-900 border-b border-slate-100 pb-2">' + m.label + '</h3>' +
+              '<div class="grid grid-cols-2 sm:grid-cols-7 gap-2">' +
+                DAY_NAMES.map(function(dn) { return '<div class="hidden sm:block text-center text-[11px] font-bold uppercase text-slate-400">' + dn + '</div>'; }).join('') +
+                blanks + cells +
+              '</div>' +
+            '</div>'
+          );
+        }).join('');
+
+        var selSum = stats.daySummaries[tutorState.selectedDate] || stats.daySummaries[START_DATE];
+        var taskRows = selSum.meta.taskLabels.map(function(lbl, idx) {
+          var tid = selSum.meta.dayType === 'uni-exam' ? selSum.meta.optionalTaskId : selSum.meta.taskIds[idx];
+          var isDone = !!(data.completedTasks && data.completedTasks[tid]);
+          var mins = (data.actualMinutes && data.actualMinutes[tid]) || 0;
+          return (
+            '<div class="flex items-center justify-between p-3 rounded-xl border ' + (isDone ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50 border-slate-200/80') + ' text-xs">' +
+              '<div class="flex items-center gap-2.5">' +
+                '<span class="w-5 h-5 rounded-md flex items-center justify-center font-bold ' + (isDone ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-400') + '">' + (isDone ? '✓' : '○') + '</span>' +
+                '<span class="font-semibold text-slate-800">' + lbl + '</span>' +
+              '</div>' +
+              '<span class="font-bold text-slate-600">' + (mins > 0 ? mins + ' min logged' : (isDone ? 'Done' : 'Pending')) + '</span>' +
+            '</div>'
+          );
+        }).join('');
+
+        bodyHTML =
+          '<div class="space-y-5">' +
+            monthsHTML +
+            '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">' +
+              '<div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">' +
+                '<div><span class="text-xs font-bold text-indigo-600">' + selSum.meta.phase + '</span><h4 class="text-lg font-extrabold text-slate-900">' + formatReadableDate(selSum.iso) + '</h4></div>' +
+                '<div class="text-sm font-extrabold text-slate-900">Completion: <span class="text-emerald-600">' + selSum.pct + '%</span> • Logged: <span class="text-indigo-600">' + selSum.loggedMins + ' min</span></div>' +
+              '</div>' +
+              '<div class="space-y-2">' + taskRows + '</div>' +
+              (selSum.note ? '<div class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950"><strong>Student Note for this day:</strong> ' + selSum.note + '</div>' : '') +
+            '</div>' +
+          '</div>';
+      }
+      else if (tutorState.activeTab === 'mocks') {
+        var mocks = data.mockExams || [];
+        if (mocks.length === 0) {
+          bodyHTML = '<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">Your student has not entered any Mock Exam scores yet.</div>';
+        } else {
+          bodyHTML = '<div class="space-y-4">' +
+            mocks.slice().reverse().map(function(m, idx) {
+              var parts = [
+                { n: 'Lesen Teil 1', d: m.lesen1 },
+                { n: 'Lesen Teil 2', d: m.lesen2 },
+                { n: 'Lesen Teil 3', d: m.lesen3 },
+                { n: 'Sprachbausteine T1', d: m.sb1 },
+                { n: 'Sprachbausteine T2', d: m.sb2 }
+              ];
+              var pCards = parts.map(function(p) {
+                var pct = p.d && p.d.total > 0 ? Math.round((p.d.correct / p.d.total) * 100) : null;
+                return '<div class="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs"><div class="text-slate-500">' + p.n + '</div><div class="font-extrabold text-slate-900 mt-0.5">' + (pct !== null ? p.d.correct + '/' + p.d.total + ' (' + pct + '%)' : '—') + '</div></div>';
+              }).join('');
+
+              var hPct = m.hoeren && m.hoeren.max > 0 ? Math.round((m.hoeren.score / m.hoeren.max) * 100) + '%' : '—';
+              var schPct = m.schreiben && m.schreiben.max > 0 ? Math.round((m.schreiben.score / m.schreiben.max) * 100) + '%' : '—';
+              var spPct = m.sprechen && m.sprechen.max > 0 ? Math.round((m.sprechen.score / m.sprechen.max) * 100) + '%' : '—';
+
+              return (
+                '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">' +
+                  '<div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">' +
+                    '<div><span class="text-[11px] font-bold uppercase text-indigo-600">Mock Exam #' + (mocks.length - idx) + '</span><h4 class="text-base font-extrabold text-slate-900">' + m.name + '</h4></div>' +
+                    '<span class="text-xs font-semibold text-slate-500">' + formatReadableDate(m.date) + '</span>' +
+                  '</div>' +
+                  '<div class="grid grid-cols-2 sm:grid-cols-5 gap-2">' + pCards + '</div>' +
+                  '<div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-xs">' +
+                    '<div class="p-2.5 rounded-xl bg-amber-50/60 border border-amber-100"><strong>Hören:</strong> ' + (m.hoeren ? m.hoeren.score + '/' + m.hoeren.max + ' (' + hPct + ')' : '—') + '</div>' +
+                    '<div class="p-2.5 rounded-xl bg-rose-50/60 border border-rose-100"><strong>Schreiben:</strong> ' + (m.schreiben ? m.schreiben.score + '/' + m.schreiben.max + ' (' + schPct + ')' : '—') + '</div>' +
+                    '<div class="p-2.5 rounded-xl bg-orange-50/60 border border-orange-100"><strong>Sprechen:</strong> ' + (m.sprechen ? m.sprechen.score + '/' + m.sprechen.max + ' (' + spPct + ')' : '—') + '</div>' +
+                  '</div>' +
+                  (m.schreiben && m.schreiben.feedback ? '<div class="text-xs text-slate-600"><strong>Schreiben Notes:</strong> ' + m.schreiben.feedback + '</div>' : '') +
+                  (m.sprechen && m.sprechen.feedback ? '<div class="text-xs text-slate-600"><strong>Sprechen Notes:</strong> ' + m.sprechen.feedback + '</div>' : '') +
+                  (m.notes ? '<div class="text-xs text-slate-800 bg-slate-50 p-3 rounded-xl border border-slate-200/70"><strong>Student Reflection:</strong> ' + m.notes + '</div>' : '') +
+                '</div>'
+              );
+            }).join('') +
+          '</div>';
+        }
+      }
+      else if (tutorState.activeTab === 'writing') {
+        var drafts = data.schreibenDrafts || {};
+        var draftKeys = Object.keys(drafts).filter(function(k) { return drafts[k] && drafts[k].text && drafts[k].text.trim(); });
+
+        var draftsHTML = draftKeys.length === 0
+          ? '<p class="text-xs text-slate-400">No German email drafts written by the student yet.</p>'
+          : draftKeys.map(function(k) {
+              var d = drafts[k];
+              return (
+                '<div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">' +
+                  '<div class="text-xs font-extrabold text-indigo-700">' + (SCHREIBEN_TITLES[k] || k) + '</div>' +
+                  '<pre class="whitespace-pre-wrap font-sans text-xs sm:text-sm text-slate-900 bg-white p-3.5 rounded-xl border border-slate-200/80 leading-relaxed">' + d.text + '</pre>' +
+                  (d.feedback ? '<div class="text-xs text-slate-600"><strong>Student Self-Check:</strong> ' + d.feedback + '</div>' : '') +
+                  (d.mistakes ? '<div class="text-xs text-rose-700"><strong>Mistakes Flagged by Student:</strong> ' + d.mistakes + '</div>' : '') +
+                '</div>'
+              );
+            }).join('');
+
+        var gramChips = stats.grammarDone.length === 0
+          ? '<span class="text-xs text-slate-400">None marked completed yet.</span>'
+          : stats.grammarDone.map(function(id) {
+              return '<span class="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">✓ ' + (GRAMMAR_NAMES[id] || id) + '</span>';
+            }).join('');
+
+        var connChips = stats.connectorsDone.length === 0
+          ? '<span class="text-xs text-slate-400">None marked completed yet.</span>'
+          : stats.connectorsDone.map(function(id) {
+              return '<span class="px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-semibold">✓ ' + (CONNECTOR_NAMES[id] || id) + '</span>';
+            }).join('');
+
+        bodyHTML =
+          '<div class="space-y-5">' +
+            '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">' +
+              '<h3 class="text-base font-extrabold text-slate-900">Student’s Schreiben Email Drafts (' + draftKeys.length + ')</h3>' +
+              '<div class="space-y-4">' + draftsHTML + '</div>' +
+            '</div>' +
+            '<div class="grid grid-cols-1 md:grid-cols-2 gap-5">' +
+              '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-2.5">' +
+                '<h4 class="text-sm font-extrabold text-slate-900">Completed Grammar Topics (' + stats.grammarDone.length + '/18)</h4>' +
+                '<div class="flex flex-wrap gap-1.5">' + gramChips + '</div>' +
+              '</div>' +
+              '<div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-2.5">' +
+                '<h4 class="text-sm font-extrabold text-slate-900">Completed B1 Connectors (' + stats.connectorsDone.length + '/21)</h4>' +
+                '<div class="flex flex-wrap gap-1.5">' + connChips + '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      }
+
+      return '<div class="tab-fade space-y-5">' + topBanner + kpiRow + bodyHTML + '</div>';
+    }
+
+    // =========================================================================
+    // 5. RENDER & EVENT BINDINGS
+    // =========================================================================
+    function renderApp() {
+      var main = document.getElementById('tutor-main');
+      var headerActions = document.getElementById('header-actions');
+      if (!main) return;
+
+      if (!tutorState.connected || !tutorState.studentData) {
+        if (headerActions) headerActions.classList.add('hidden');
+        main.innerHTML = renderLoginGate();
+        var form = document.getElementById('tutor-connect-form');
+        if (form) {
+          form.onsubmit = function(e) {
+            e.preventDefault();
+            var inp = document.getElementById('tutor-code-input');
+            if (inp) loadFromSnapshotOrLocal(inp.value);
+          };
+        }
+      } else {
+        if (headerActions) headerActions.classList.remove('hidden');
+        main.innerHTML = renderTutorDashboard();
+
+        document.querySelectorAll('[data-tutor-tab]').forEach(function(btn) {
+          btn.onclick = function() {
+            tutorState.activeTab = btn.dataset.tutorTab;
+            renderApp();
+          };
+        });
+
+        document.querySelectorAll('[data-tutor-date]').forEach(function(btn) {
+          btn.onclick = function() {
+            tutorState.selectedDate = btn.dataset.tutorDate;
+            renderApp();
+          };
+        });
+      }
+    }
+
+    document.getElementById('switch-student-btn').addEventListener('click', function() {
+      if (unsubscribeDoc) {
+        try { unsubscribeDoc(); } catch (e) {}
+        unsubscribeDoc = null;
+      }
+      tutorState.connected = false;
+      tutorState.studentData = null;
+      setConnectionStatus('Ready for Code', 'bg-amber-400');
+      renderApp();
+    });
+
+    // Boot & check URL ?code= or ?tutor= parameter automatically
+    (function bootTutorPortal() {
+      initCloudConnection();
+      try {
+        var params = new URLSearchParams(window.location.search || '');
+        var urlCode = params.get('code') || params.get('tutor');
+        if (urlCode) {
+          tutorState.studentCode = sanitizeCode(urlCode);
+          renderApp();
+          loadFromSnapshotOrLocal(urlCode);
+          return;
+        }
+      } catch (e) {}
+      renderApp();
+    })();
+  </script>
+</body>
+</html>
